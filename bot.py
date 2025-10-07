@@ -4,7 +4,6 @@ from telebot import types
 import threading
 import time
 from datetime import datetime, timedelta
-import pytz
 from flask import Flask
 
 # ======== Настройки ========
@@ -13,8 +12,7 @@ if not BOT_TOKEN:
     raise ValueError("Неверный токен! Установите BOT_TOKEN в переменных окружения.")
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Московское время
-tz = pytz.timezone("Europe/Moscow")
+MOSCOW_OFFSET = 3  # Часовой пояс Москвы UTC+3
 
 # ======== Мини-сервер для Render ========
 app = Flask("")
@@ -35,9 +33,9 @@ events = {}
 # ======== Проверка и уведомления ========
 def check_events():
     while True:
-        now = datetime.now(tz)
+        now_utc = datetime.utcnow()
         for name, data in list(events.items()):
-            event_time = data["time"]
+            event_time_utc = data["time_utc"]
             chat_id = data["chat_id"]
             notified = data["notified"]
             alerts = data["alerts"]
@@ -47,11 +45,11 @@ def check_events():
             for minutes_before in alerts:
                 key = f"{minutes_before}m"
                 if key not in notified:
-                    delta = (event_time - now).total_seconds() / 60
+                    delta = (event_time_utc - now_utc).total_seconds() / 60
                     if delta <= minutes_before:
                         if delta > 1440:
                             days = round(delta / 1440)
-                            msg = f"⚔️ Событие '{name}' стартует через {days} дн в {event_time.strftime('%H:%M')} МСК! Готовьтесь!"
+                            msg = f"⚔️ Событие '{name}' стартует через {days} дн в {(event_time_utc + timedelta(hours=MOSCOW_OFFSET)).strftime('%H:%M')} МСК! Готовьтесь!"
                         elif delta >= 60:
                             hours = round(delta / 60)
                             msg = f"⚔️ До '{name}' осталось {hours} час(а/ов)!"
@@ -62,13 +60,13 @@ def check_events():
                         notified.add(key)
 
             # Финальное уведомление при старте
-            if event_time <= now < event_time + timedelta(minutes=1) and "start" not in notified:
+            if event_time_utc <= now_utc < event_time_utc + timedelta(minutes=1) and "start" not in notified:
                 member_str = " ".join(members) if members else ""
-                bot.send_message(chat_id, f"🔥 '{name}' НАЧАЛСЯ! {member_str} Аминь! (Время: {event_time.strftime('%H:%M')} МСК)")
+                bot.send_message(chat_id, f"🔥 '{name}' НАЧАЛСЯ! {member_str} Аминь! (Время: {(event_time_utc + timedelta(hours=MOSCOW_OFFSET)).strftime('%H:%M')} МСК)")
                 notified.add("start")
 
             # Удаление старых ивентов через 2 часа после старта
-            if now > event_time + timedelta(hours=2):
+            if now_utc > event_time_utc + timedelta(hours=2):
                 del events[name]
         time.sleep(30)
 
@@ -120,14 +118,15 @@ def callback_handler(call):
 def step_event_name(message):
     event_name = message.text.lower()
     message.chat.event_name = event_name
-    msg = bot.send_message(message.chat.id, "Введите дату и время (например, 09.10.2025 18:00):")
+    msg = bot.send_message(message.chat.id, "Введите дату и время МСК (например, 09.10.2025 18:00):")
     bot.register_next_step_handler(msg, step_event_datetime)
 
 def step_event_datetime(message):
     try:
-        dt = datetime.strptime(message.text, "%d.%m.%Y %H:%M")
-        dt = tz.localize(dt)
-        message.chat.event_time = dt
+        dt_msk = datetime.strptime(message.text, "%d.%m.%Y %H:%M")
+        # Перевод в UTC для хранения
+        dt_utc = dt_msk - timedelta(hours=MOSCOW_OFFSET)
+        message.chat.event_time_utc = dt_utc
         msg = bot.send_message(message.chat.id, "Введите участников (через @username), через пробел, или оставьте пустым для всех:")
         bot.register_next_step_handler(msg, step_event_members)
     except:
@@ -137,15 +136,15 @@ def step_event_datetime(message):
 def step_event_members(message):
     members = message.text.split() if message.text.strip() else []
     event_name = message.chat.event_name
-    event_time = message.chat.event_time
+    event_time_utc = message.chat.event_time_utc
     events[event_name] = {
-        "time": event_time,
+        "time_utc": event_time_utc,
         "chat_id": message.chat.id,
         "members": members,
         "notified": set(),
         "alerts": [10, 60, 300, 720, 1440, 2880]  # 10мин,1ч,5ч,12ч,1д,2д
     }
-    bot.send_message(message.chat.id, f"✅ Ивент '{event_name}' создан на {event_time.strftime('%d.%m.%Y %H:%M')} МСК. Участники: {' '.join(members) if members else 'Все'}")
+    bot.send_message(message.chat.id, f"✅ Ивент '{event_name}' создан на {(event_time_utc + timedelta(hours=MOSCOW_OFFSET)).strftime('%d.%m.%Y %H:%M')} МСК. Участники: {' '.join(members) if members else 'Все'}")
 
 # ======== Запуск бота ========
 bot.infinity_polling()
