@@ -29,7 +29,7 @@ STANDARD_ALERTS = [10, 60, 300, 720, 1440]  # мин: 10мин,1ч,5ч,12ч,24ч
 # ======== Проверка событий ========
 def check_events():
     while True:
-        now = datetime.utcnow()  # сервер в UTC
+        now = datetime.utcnow()  # UTC
         for name, data in list(events.items()):
             event_time = data["time"]
             chat_id = data["chat_id"]
@@ -156,6 +156,28 @@ def cancel_event(message):
         bot.reply_to(message, f"🛑 Ивент '{name}' отменён.")
     else:
         bot.reply_to(message, f"❌ Ивент '{name}' не найден.")
+
+# Команда /до — сколько времени осталось
+@bot.message_handler(commands=['до'])
+def time_left(message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.reply_to(message, "⚠️ Формат: /до <название>")
+        return
+    name = parts[1].lower()
+    if name not in events:
+        bot.reply_to(message, f"❌ Ивент '{name}' не найден.")
+        return
+    now = datetime.utcnow()
+    event_time = events[name]["time"]
+    delta = event_time - now
+    if delta.total_seconds() > 0:
+        days = delta.days
+        hours, remainder = divmod(delta.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        bot.reply_to(message, f"✨ До '{name}' осталось: {days}д {hours:02}:{minutes:02}:{seconds:02}")
+    else:
+        bot.reply_to(message, f"🔥 '{name}' уже начался!")
 
 # Команда помощь — список всех команд
 @bot.message_handler(commands=['помощь'])
