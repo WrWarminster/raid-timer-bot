@@ -4,17 +4,19 @@ import time
 from datetime import datetime, timedelta
 import os
 import json
+from flask import Flask
+from threading import Thread
 
+# ======== Настройки бота ========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # ======== Хранилище ========
 events = {}
 groups = {}  # {"название группы": ["@user1", "@user2"]}
-
 GROUPS_FILE = "groups.json"
 
-# Загрузка групп из файла
+# Загрузка групп
 if os.path.exists(GROUPS_FILE):
     with open(GROUPS_FILE, "r", encoding="utf-8") as f:
         groups = json.load(f)
@@ -26,6 +28,18 @@ def save_groups():
 # ======== Настройки уведомлений ========
 STANDARD_ALERTS = [10, 60, 300, 720, 1440]  # мин: 10мин,1ч,5ч,12ч,24ч
 
+# ======== HTTP сервер для пинга ========
+app = Flask("")
+
+@app.route("/")
+def home():
+    return "Bot is alive!"
+
+def run():
+    app.run(host="0.0.0.0", port=5000)
+
+Thread(target=run).start()
+
 # ======== Проверка событий ========
 def check_events():
     while True:
@@ -36,7 +50,6 @@ def check_events():
             notified = data["notified"]
             members = data.get("members", [])
 
-            # Событие более суток вперед
             delta_total = (event_time - now).total_seconds() / 60
             if delta_total > 1440:
                 if "days" not in notified:
@@ -45,7 +58,6 @@ def check_events():
                     notified.add("days")
                 continue
 
-            # Стандартные уведомления
             for minutes_before in STANDARD_ALERTS:
                 key = f"{minutes_before}m"
                 if minutes_before > delta_total:
@@ -60,13 +72,11 @@ def check_events():
                     bot.send_message(chat_id, f"{msg} {member_str}")
                     notified.add(key)
 
-            # Сообщение о начале события
             if event_time <= now < event_time + timedelta(minutes=1) and "start" not in notified:
                 member_str = " ".join(members) if members else ""
                 bot.send_message(chat_id, f"🔥 '{name}' НАЧАЛСЯ! {member_str}")
                 notified.add("start")
 
-            # Удаление старых событий
             if now > event_time + timedelta(hours=2):
                 del events[name]
 
@@ -74,8 +84,7 @@ def check_events():
 
 threading.Thread(target=check_events, daemon=True).start()
 
-# ======== Команды ========
-# Создать группу
+# ======== Команды бота ========
 @bot.message_handler(commands=['создать_группу'])
 def create_group(message):
     parts = message.text.split(maxsplit=2)
@@ -88,7 +97,6 @@ def create_group(message):
     save_groups()
     bot.reply_to(message, f"✅ Группа '{name}' создана: {' '.join(members)}")
 
-# Создать ивент с учетом МСК
 @bot.message_handler(commands=['создать_ивент'])
 def create_event(message):
     try:
@@ -100,7 +108,6 @@ def create_event(message):
         date_str, time_str = parts[2], parts[3]
         raw_members = parts[4:]
 
-        # Вводим МСК, конвертируем в UTC для сервера
         msk_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
         event_time = msk_time - timedelta(hours=3)  # МСК → UTC
 
@@ -119,7 +126,6 @@ def create_event(message):
     except ValueError:
         bot.reply_to(message, "⚠️ Неверный формат даты или времени. Пример: /создать_ивент рейд 2025-10-10 20:00 @user1 @user2")
 
-# Команда созыв для всех участников чата
 @bot.message_handler(commands=['созыв'])
 def general_call(message):
     chat_id = message.chat.id
@@ -132,7 +138,6 @@ def general_call(message):
     else:
         bot.send_message(chat_id, "⚠️ Нет участников для общего сбора.")
 
-# Список событий
 @bot.message_handler(commands=['ивенты'])
 def list_events(message):
     if not events:
@@ -143,7 +148,6 @@ def list_events(message):
         text += f"• {name} — {(data['time'] + timedelta(hours=3)).strftime('%d.%m.%Y %H:%M')} МСК\n"
     bot.reply_to(message, text)
 
-# Отмена события
 @bot.message_handler(commands=['отменить_ивент'])
 def cancel_event(message):
     parts = message.text.split(maxsplit=1)
@@ -157,7 +161,6 @@ def cancel_event(message):
     else:
         bot.reply_to(message, f"❌ Ивент '{name}' не найден.")
 
-# Команда /до — сколько времени осталось
 @bot.message_handler(commands=['до'])
 def time_left(message):
     parts = message.text.split(maxsplit=1)
@@ -179,7 +182,6 @@ def time_left(message):
     else:
         bot.reply_to(message, f"🔥 '{name}' уже начался!")
 
-# Команда помощь — список всех команд
 @bot.message_handler(commands=['помощь'])
 def help_commands(message):
     text = (
