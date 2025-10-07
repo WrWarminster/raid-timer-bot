@@ -29,7 +29,7 @@ STANDARD_ALERTS = [10, 60, 300, 720, 1440]  # мин: 10мин,1ч,5ч,12ч,24ч
 # ======== Проверка событий ========
 def check_events():
     while True:
-        now = datetime.now()
+        now = datetime.utcnow()  # сервер в UTC
         for name, data in list(events.items()):
             event_time = data["time"]
             chat_id = data["chat_id"]
@@ -41,7 +41,7 @@ def check_events():
             if delta_total > 1440:
                 if "days" not in notified:
                     days_left = int(delta_total // 1440)
-                    bot.send_message(chat_id, f"📅 Событие '{name}' стартует через {days_left} дн. В {event_time.strftime('%H:%M')}!")
+                    bot.send_message(chat_id, f"📅 Событие '{name}' стартует через {days_left} дн. В {(event_time + timedelta(hours=3)).strftime('%H:%M')} МСК!")
                     notified.add("days")
                 continue
 
@@ -88,7 +88,7 @@ def create_group(message):
     save_groups()
     bot.reply_to(message, f"✅ Группа '{name}' создана: {' '.join(members)}")
 
-# Создать ивент
+# Создать ивент с учетом МСК
 @bot.message_handler(commands=['создать_ивент'])
 def create_event(message):
     try:
@@ -100,13 +100,14 @@ def create_event(message):
         date_str, time_str = parts[2], parts[3]
         raw_members = parts[4:]
 
-        event_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        # Вводим МСК, конвертируем в UTC для сервера
+        msk_time = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        event_time = msk_time - timedelta(hours=3)  # МСК → UTC
 
         final_members = []
-
         for m in raw_members:
             if m.lower() == "все":
-                final_members = []  # оставляем пустым, чтобы уведомление тегало всех в чате
+                final_members = []
                 break
             elif m.lower() in groups:
                 final_members.extend(groups[m.lower()])
@@ -114,7 +115,7 @@ def create_event(message):
                 final_members.append(m)
 
         events[name] = {"time": event_time, "chat_id": message.chat.id, "notified": set(), "members": final_members}
-        bot.reply_to(message, f"✅ Ивент '{name}' создан на {event_time.strftime('%d.%m.%Y %H:%M')}\nУчастники: {' '.join(final_members) if final_members else 'Все'}")
+        bot.reply_to(message, f"✅ Ивент '{name}' создан на {msk_time.strftime('%d.%m.%Y %H:%M')} МСК\nУчастники: {' '.join(final_members) if final_members else 'Все'}")
     except ValueError:
         bot.reply_to(message, "⚠️ Неверный формат даты или времени. Пример: /создать_ивент рейд 2025-10-10 20:00 @user1 @user2")
 
@@ -139,7 +140,7 @@ def list_events(message):
         return
     text = "📅 Активные ивенты:\n"
     for name, data in events.items():
-        text += f"• {name} — {data['time'].strftime('%d.%m.%Y %H:%M')}\n"
+        text += f"• {name} — {(data['time'] + timedelta(hours=3)).strftime('%d.%m.%Y %H:%M')} МСК\n"
     bot.reply_to(message, text)
 
 # Отмена события
@@ -166,7 +167,7 @@ def help_commands(message):
         "/ивенты — показать все активные события\n"
         "/до <название> — сколько времени осталось до события\n"
         "/отменить_ивент <название> — отменить событие\n"
-        "/созыв — общий созыв участников всех групп\n"
+        "/созыв — общий сбор участников всех групп\n"
         "/помощь — показать это сообщение"
     )
     bot.reply_to(message, text)
