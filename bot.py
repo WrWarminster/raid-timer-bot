@@ -1,14 +1,16 @@
+import os
 import telebot
 from telebot import types
 import threading
 import time
 from datetime import datetime, timedelta
 import pytz
-import os
 from flask import Flask
 
 # ======== Настройки ========
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Убедись, что токен задан в Render или Replit
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("Неверный токен! Установите BOT_TOKEN в переменных окружения.")
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Московское время
@@ -22,9 +24,10 @@ def home():
     return "Бот живой!"
 
 def run_server():
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
 
-threading.Thread(target=run_server).start()
+threading.Thread(target=run_server, daemon=True).start()
 
 # ======== Хранилище ивентов ========
 events = {}
@@ -117,7 +120,7 @@ def callback_handler(call):
 def step_event_name(message):
     event_name = message.text.lower()
     message.chat.event_name = event_name
-    msg = bot.send_message(message.chat.id, "Введите дату и время (например, 09.10.2025 18:00 МСК):")
+    msg = bot.send_message(message.chat.id, "Введите дату и время (например, 09.10.2025 18:00):")
     bot.register_next_step_handler(msg, step_event_datetime)
 
 def step_event_datetime(message):
@@ -145,4 +148,4 @@ def step_event_members(message):
     bot.send_message(message.chat.id, f"✅ Ивент '{event_name}' создан на {event_time.strftime('%d.%m.%Y %H:%M')} МСК. Участники: {' '.join(members) if members else 'Все'}")
 
 # ======== Запуск бота ========
-bot.polling()
+bot.infinity_polling()
